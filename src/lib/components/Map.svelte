@@ -4,6 +4,8 @@
 	import type { MapLayer } from '$lib/types';
 	import type { MicroCMSRyokan } from '$lib/microcms';
 	import { LAYER_BUTTONS } from '$lib/types';
+	import maplibregl from 'maplibre-gl';
+	import 'maplibre-gl/dist/maplibre-gl.css';
 
 	// Updated props interface to handle MicroCMSRyokan
 	interface MapProps {
@@ -15,9 +17,8 @@
 	let { activeSection = 'onsen', onMarkerClick, onMapClick }: MapProps = $props();
 
 	let mapContainer: HTMLDivElement;
-	let map: any;
-	let L: any;
-	let currentMarkers: any[] = [];
+	let map: maplibregl.Map;
+	let currentMarkers: maplibregl.Marker[] = [];
 	let activeLayer: MapLayer = $state('onsen');
 
 	const layerButtons = LAYER_BUTTONS;
@@ -26,42 +27,40 @@
 	let ryokans = $derived((page.data.ryokans as MicroCMSRyokan[]) || []);
 
 	// Yamanouchi area coordinates
-	const YAMANOUCHI_CENTER: [number, number] = [36.7428, 138.4308];
+	const YAMANOUCHI_CENTER: [number, number] = [138.4308, 36.7428];
 	const DEFAULT_ZOOM = 13;
 
 	onMount(async () => {
 		try {
-			// Dynamic import for Leaflet to avoid SSR issues
-			L = await import('leaflet');
-
-			// Fix for default markers in Vite/SvelteKit
-			delete (L.Icon.Default.prototype as any)._getIconUrl;
-			L.Icon.Default.mergeOptions({
-				iconRetinaUrl:
-					'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-				iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-				shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png'
-			});
-
-			// Initialize map
-			map = L.map(mapContainer, {
+			// Initialize MapLibre GL map
+			map = new maplibregl.Map({
+				container: mapContainer,
+				style: {
+					version: 8,
+					sources: {
+						'osm-tiles': {
+							type: 'raster',
+							tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+							tileSize: 256,
+							attribution: '© OpenStreetMap contributors'
+						}
+					},
+					layers: [
+						{
+							id: 'osm-tiles',
+							type: 'raster',
+							source: 'osm-tiles'
+						}
+					]
+				},
 				center: YAMANOUCHI_CENTER,
 				zoom: DEFAULT_ZOOM,
-				zoomControl: true,
-				scrollWheelZoom: true
+				maxZoom: 18
 			});
 
-			// Add tile layer
-			L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-				attribution:
-					'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-				opacity: 0.8,
-				maxZoom: 18
-			}).addTo(map);
-
 			// Handle map clicks
-			map.on('click', (e: any) => {
-				if (!e.originalEvent.target.closest('.custom-marker')) {
+			map.on('click', (e) => {
+				if (!(e.originalEvent?.target as HTMLElement)?.closest('.custom-marker')) {
 					onMapClick?.();
 				}
 			});
@@ -78,43 +77,35 @@
 	});
 
 	function createRyokanMarker(ryokan: MicroCMSRyokan) {
-		if (!L || !map) return null;
+		if (!map) return null;
 
-		const markerHtml = `
-			<div class="custom-marker marker-ryokan" 
-				 style="background-color: #8b4513;" 
-				 title="${ryokan.name}">
-				<span>🏮</span>
-			</div>
-		`;
+		// Create marker element
+		const markerEl = document.createElement('div');
+		markerEl.className = 'custom-marker marker-ryokan';
+		markerEl.innerHTML = '🏮';
+		markerEl.title = ryokan.name;
 
-		const marker = L.marker([ryokan.latitude, ryokan.longitude], {
-			icon: L.divIcon({
-				html: markerHtml,
-				className: 'custom-div-icon',
-				iconSize: [35, 35],
-				iconAnchor: [17, 35]
-			}),
-			title: ryokan.name
-		});
-
-		// Handle marker click - pass raw MicroCMSRyokan data
-		marker.on('click', () => {
+		// Handle marker click
+		markerEl.addEventListener('click', (e) => {
+			e.stopPropagation();
 			onMarkerClick?.(ryokan);
 		});
+
+		// Create MapLibre marker
+		const marker = new maplibregl.Marker(markerEl).setLngLat([ryokan.latitude, ryokan.longitude]);
 
 		return marker;
 	}
 
 	function filterMarkers(layer: MapLayer) {
-		if (!map || !L) {
+		if (!map) {
 			console.log('Map not ready yet, skipping filter');
 			return;
 		}
 
 		// Clear existing markers
 		currentMarkers.forEach((marker) => {
-			map.removeLayer(marker);
+			marker.remove();
 		});
 		currentMarkers = [];
 
@@ -133,8 +124,12 @@
 
 		// Fit map to show all markers if there are any
 		if (currentMarkers.length > 0) {
-			const group = L.featureGroup(currentMarkers);
-			map.fitBounds(group.getBounds().pad(0.1), {
+			const bounds = new maplibregl.LngLatBounds();
+			currentMarkers.forEach((marker) => {
+				bounds.extend(marker.getLngLat());
+			});
+			map.fitBounds(bounds, {
+				padding: { top: 50, bottom: 50, left: 50, right: 50 },
 				maxZoom: 15
 			});
 		}
@@ -294,28 +289,45 @@
 		background: rgba(255, 255, 255, 0.3);
 	}
 
-	/* Airbnb-style markers */
+	/* Modern Airbnb-style markers */
 	:global(.custom-marker) {
-		width: 35px;
-		height: 35px;
-		border-radius: 50% 50% 50% 0;
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		background: linear-gradient(135deg, #ff385c 0%, #e61e4d 100%);
 		border: 3px solid white;
-		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+		box-shadow:
+			0 4px 15px rgba(230, 30, 77, 0.4),
+			0 2px 8px rgba(0, 0, 0, 0.15);
 		cursor: pointer;
-		transition: all 0.3s ease;
-		transform: rotate(-45deg);
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		font-size: 1.2rem;
+		color: white;
+		position: relative;
 	}
 
-	:global(.custom-marker span) {
-		transform: rotate(45deg);
-		font-size: 1rem;
+	:global(.custom-marker::before) {
+		content: '';
+		position: absolute;
+		top: 100%;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 0;
+		height: 0;
+		border-left: 8px solid transparent;
+		border-right: 8px solid transparent;
+		border-top: 8px solid #e61e4d;
+		filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
 	}
 
 	:global(.custom-marker:hover) {
-		transform: rotate(-45deg) scale(1.2);
+		transform: translateY(-2px) scale(1.1);
+		box-shadow:
+			0 8px 25px rgba(230, 30, 77, 0.5),
+			0 4px 12px rgba(0, 0, 0, 0.2);
 		z-index: 1000;
 	}
 

@@ -55,6 +55,10 @@ export interface FilterBarProps {
 	onFiltersChange?: (filters: RyokanFilters) => void;
 }
 
+export interface ColumnProps {
+	activeSection?: Section;
+}
+
 // Data constants
 export const SECTIONS = [
 	{ id: 'onsen' as const, label: '湯場めぐり' },
