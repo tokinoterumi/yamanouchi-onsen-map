@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import Navbar from '$lib/components/Navbar.svelte';
 	import Map from '$lib/components/Map.svelte';
 	import InfoCard from '$lib/components/InfoCard.svelte';
 	import Column from '$lib/components/Column.svelte';
+	import { transformMicroCMSRyokanForInfoCard, type MicroCMSRyokan } from '$lib/microcms';
 
 	type Section = 'onsen' | 'ryokan' | 'history';
 	type Language = 'ja' | 'zh' | 'en';
@@ -24,6 +26,9 @@
 	let activeLanguage: Language = $state('ja');
 	let selectedItem: MapItem | null = $state(null);
 	let showInfoCard: boolean = $state(false);
+
+	// Get ryokan data from microCMS (loaded server-side)
+	let ryokans = $derived((page.data.ryokans as MicroCMSRyokan[]) || []);
 
 	// Reactive statement to update section from URL
 	$effect(() => {
@@ -64,8 +69,12 @@
 		// Could also update URL if you want language persistence
 	}
 
-	function handleMarkerClick(item: MapItem) {
-		selectedItem = item;
+	// Updated to handle MicroCMS ryokan data
+	function handleMarkerClick(ryokan: MicroCMSRyokan) {
+		console.log('Marker clicked:', ryokan);
+
+		// Transform microCMS data to MapItem format for InfoCard
+		selectedItem = transformMicroCMSRyokanForInfoCard(ryokan);
 		showInfoCard = true;
 	}
 
@@ -75,13 +84,24 @@
 	}
 
 	function handleDetailsClick() {
-		// Smooth scroll to content section
-		scrollToContentSection();
+		if (selectedItem) {
+			// Navigate to detailed ryokan page
+			// You can use the ryokan slug or name for the URL
+			const ryokanSlug = selectedItem.name; // or get slug from original data
+			goto(`/ryokan/${encodeURIComponent(ryokanSlug)}`);
+		} else {
+			// Fallback: scroll to content section
+			scrollToContentSection();
+		}
 	}
 
 	function handlePhotosClick() {
-		// Handle photo gallery opening
-		console.log('Photos clicked for:', selectedItem?.name);
+		if (selectedItem) {
+			console.log('Photos clicked for:', selectedItem.name);
+			// Navigate to photo gallery or open modal
+			const ryokanSlug = selectedItem.name;
+			goto(`/ryokan/${encodeURIComponent(ryokanSlug)}/photos`);
+		}
 	}
 
 	function scrollToSection(section: Section) {
@@ -128,6 +148,13 @@
 				return '山ノ内町 温泉探訪';
 		}
 	});
+
+	// Debug: Log ryokan data when it loads
+	$effect(() => {
+		if (ryokans.length > 0) {
+			console.log(`Loaded ${ryokans.length} ryokans from microCMS:`, ryokans);
+		}
+	});
 </script>
 
 <svelte:head>
@@ -152,6 +179,7 @@
 	/>
 
 	<div class="map-section">
+		<!-- Pass activeSection as string to match Map component expectations -->
 		<Map {activeSection} onMarkerClick={handleMarkerClick} onMapClick={handleMapClick} />
 
 		<InfoCard
