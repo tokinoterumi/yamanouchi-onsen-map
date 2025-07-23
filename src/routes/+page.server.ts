@@ -16,6 +16,8 @@ export const load: PageServerLoad = async ({ url }) => {
 			...(draftKey && { draftKey })
 		});
 
+		console.log(`---> Fetched ${ryokansResponse.contents.length} ryokans from microCMS.`);
+
 		return {
 			ryokans: ryokansResponse.contents
 		};
